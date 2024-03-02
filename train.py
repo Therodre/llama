@@ -49,9 +49,7 @@ wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # data
 batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
-vocab_source = (
-    "llama2"  # llama2|custom; use Lllama 2 vocab from Meta, or custom trained
-)
+vocab_source = "enwik"  # llama2|custom; use Lllama 2 vocab from Meta, or custom trained
 vocab_size = 32000  # the Llama 2 tokenizer has 32K tokens
 # model
 dim = 256
@@ -104,9 +102,9 @@ lr_decay_iters = max_iters  # should be ~= max_iters per Chinchilla
 min_lr = 0.0  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 
 # validating checks
-assert vocab_source in ["llama2", "custom"]
+assert vocab_source in ["enwik", "llama2", "custom"]
 assert (
-    vocab_source == "custom" or vocab_size == 32000
+    vocab_source == "enwik" or vocab_source == "custom" or vocab_size == 32000
 ), "The vocab from Meta has 32K tokens"
 
 # various inits, derived attributes, I/O setup

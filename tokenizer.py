@@ -153,16 +153,17 @@ class SimpleTokenizer(PreTrainedTokenizer):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # tok = SimpleTokenizer()
-    # s = "Tu es vraiment un gros legume, ';[]9876543´éeee\]=0-0890"
-    # print(s)
-    # t = tok.encode(s, True, True)
-    # print(t)
-    # print(tok.decode(t))
-    parser.add_argument(
-        "-t", "--tokenizer-model", type=str, help="optional path to custom tokenizer "
-    )
-    args = parser.parse_args()
+    tok = SimpleTokenizer()
+    s = "Tu es vraiment un gros legume, ';[]9876543´éeee\]=0-0890"
+    print(s)
+    t = tok.encode(s, True, True)
+    print(t)
+    print(tok.decode(t))
+    print(tok.vocab_size)
+    # parser.add_argument(
+    #     "-t", "--tokenizer-model", type=str, help="optional path to custom tokenizer "
+    # )
+    # args = parser.parse_args()
 
-    t = Tokenizer(args.tokenizer_model)
-    t.export()
+    # t = Tokenizer(args.tokenizer_model)
+    # t.export()

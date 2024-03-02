@@ -18,9 +18,10 @@ import torch
 import torch.distributed as dist
 from tqdm import tqdm
 
-from tokenizer import Tokenizer
+from tokenizer import Tokenizer, SimpleTokenizer
 
-DATA_CACHE_DIR = "/storage/data_sakana"
+DATA_CACHE_DIR = "/storage/enwik8"
+# DATA_CACHE_DIR = "/storage/data_sakana"
 
 
 def download_file(url: str, fname: str, chunk_size=1024):
@@ -128,10 +129,10 @@ def train_vocab(vocab_size):
     print("Done.")
 
 
-def process_shard(args, vocab_size):
+def process_shard(args, vocab_size, simple_tokenizer=False):
     shard_id, shard = args
     tokenizer_model = get_tokenizer_model_path(vocab_size)
-    enc = Tokenizer(tokenizer_model)
+    enc = SimpleTokenizer if simple_tokenizer else Tokenizer(tokenizer_model)
     with open(shard, "r") as f:
         data = json.load(f)
     all_tokens = []
@@ -204,10 +205,16 @@ class PretokDataset(torch.utils.data.IterableDataset):
             # the .bin files are in tok{N} directory
             bin_dir = os.path.join(DATA_CACHE_DIR, f"tok{self.vocab_size}")
             shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
-        # train/test split. let's use only shard 0 for test split, rest train
-        shard_filenames = (
-            shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
-        )
+        elif self.vocab_source == "enwik":
+            bin_dir = DATA_CACHE_DIR
+            shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
+        if self.vocab_source == "enwik":
+            shard_filenames = [u for u in shard_filenames if self.split in u]
+        else:
+            # train/test split. let's use only shard 0 for test split, rest train
+            shard_filenames = (
+                shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
+            )
         assert len(shard_filenames) > 0, f"No bin files found in {bin_dir}"
         while True:
             rng.shuffle(shard_filenames)
