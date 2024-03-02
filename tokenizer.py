@@ -159,7 +159,7 @@ if __name__ == "__main__":
     t = tok.encode(s, True, True)
     print(t)
     print(tok.decode(t))
-    print(tok.vocab_size)
+    print(tok.vocab_size)  # FOR VOCAB SIZE PARAMETER
     # parser.add_argument(
     #     "-t", "--tokenizer-model", type=str, help="optional path to custom tokenizer "
     # )

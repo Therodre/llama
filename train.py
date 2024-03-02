@@ -346,10 +346,14 @@ while True:
                     "best_val_loss": best_val_loss,
                     "config": config,
                 }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
-                # TODO: Make this work with ssm layer
-                # model_export(raw_model, os.path.join(out_dir, "model.bin"), version=0)
+
+    # saving only every 100 logging steps
+    if iter_num % (100 * eval_interval) == 0 and master_process:
+
+        print(f"saving checkpoint to {out_dir}")
+        torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
+        # TODO: Make this work with ssm layer
+        # model_export(raw_model, os.path.join(out_dir, "model.bin"), version=0)
     if iter_num == 0 and eval_only:
         break
 
