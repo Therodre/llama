@@ -64,6 +64,10 @@ class ModelArgs:
     max_seq_len: int = 2048
     dropout: float = 0.0
     ssm_config: Optional[MambaConfig] = BASIC_SSM_CONFIG
+    loss_normalization: bool = (
+        True  # True for bit cross entropy, False for classical cross entropy
+    )
+    hybrid: bool = False
 
     def __post_init__(self):
         assert (
@@ -292,15 +296,26 @@ class Transformer(nn.Module):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
-        assert params.n_layers % 2 == 0, f"Number of layers should be even"
-        self.n_layers = params.n_layers // 2
+        self.hybrid = params.hybrid
+        # either a pure transformer or a hybrid mamba + transfo block
+        if self.hybrid:
+            assert (
+                params.n_layers % 2 == 0
+            ), f"Number of layers should be even in hybrid model"
+            self.n_layers = params.n_layers // 2
+        else:
+            self.n_layers = params.n_layers
 
         self.tok_embeddings = nn.Embedding(params.vocab_size, params.dim)
         self.dropout = nn.Dropout(params.dropout)
         self.layers = torch.nn.ModuleList()
-        for layer_id in range(self.n_layers):
-            self.layers.append(SSMBlock(2 * layer_id, params))
-            self.layers.append(TransformerBlock(2 * layer_id + 1, params))
+        if self.hybrid:
+            for layer_id in range(self.n_layers):
+                self.layers.append(SSMBlock(2 * layer_id, params))
+                self.layers.append(TransformerBlock(2 * layer_id + 1, params))
+        else:
+            for layer_id in range(self.n_layers):
+                self.layers.append(TransformerBlock(layer_id, params))
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
 
@@ -327,6 +342,9 @@ class Transformer(nn.Module):
 
         # Initialize attribute for the loss of the last forward call. This will be set if the forward is called with a targets tensor.
         self.last_loss = None
+        self.loss_normalization = (
+            (1 / torch.log(torch.tensor(2.0))) if params.loss_normalization else 1.0
+        )
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -344,15 +362,22 @@ class Transformer(nn.Module):
         h = self.dropout(h)
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
-
-        for layer in self.layers:
-            h = layer(h, freqs_cos, freqs_sin) if layer.layer_id % 2 == 1 else layer(h)
+        if self.hybrid:
+            for layer in self.layers:
+                h = (
+                    layer(h, freqs_cos, freqs_sin)
+                    if layer.layer_id % 2 == 1
+                    else layer(h)
+                )
+        else:
+            for layer in self.layers:
+                h = layer(h, freqs_cos, freqs_sin)
         h = self.norm(h)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.output(h)
-            self.last_loss = F.cross_entropy(
+            self.last_loss = self.loss_normalization * F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
         else:

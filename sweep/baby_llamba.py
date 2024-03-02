@@ -28,6 +28,8 @@ n_heads = 4
 n_kv_heads = 4
 multiple_of = 32
 dropout = 0.0
+loss_normalization = True
+hybrid = True
 # adamw optimizer
 gradient_accumulation_steps = 16  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate

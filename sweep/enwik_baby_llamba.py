@@ -3,7 +3,7 @@
 from datetime import datetime
 
 
-out_dir = "out"
+out_dir = "out/ssm"
 eval_interval = 10
 log_interval = 1
 eval_iters = 100
@@ -26,6 +26,10 @@ n_heads = 4
 n_kv_heads = 4
 multiple_of = 32
 dropout = 0.0
+loss_normalization = (
+    True  # True for bit cross entropy, False for classical cross entropy
+)
+hybrid = True
 # adamw optimizer
 gradient_accumulation_steps = 16  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate

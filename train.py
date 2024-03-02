@@ -58,6 +58,10 @@ n_heads = 4
 n_kv_heads = 4
 multiple_of = 32
 dropout = 0.0
+loss_normalization = (
+    True  # True for bit cross entropy, False for classical cross entropy
+)
+hybrid = False
 # adamw optimizer
 gradient_accumulation_steps = 16  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate
@@ -195,6 +199,8 @@ model_args = dict(
     max_seq_len=max_seq_len,
     dropout=dropout,
     ssm_config=ssm_config,
+    loss_normalization=loss_normalization,
+    hybrid=hybrid,
 )
 # start with model_args from command line
 if init_from == "scratch":
@@ -300,6 +306,7 @@ if wandb_log and master_process:
     import wandb
 
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    print(model)
 
 # training loop
 train_batch_iter = iter_batches(split="train")
