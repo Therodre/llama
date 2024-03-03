@@ -91,6 +91,9 @@ dt_scale = 1.0
 bias = False
 conv_bias = True
 pscan = True
+# distillation
+with_dist = "False"  # "Fake"|"True"|"False"; str not bool watch out
+dist_coef = 0.0
 # -----------------------------------------------------------------------------
 config_keys = [
     k
@@ -201,6 +204,7 @@ model_args = dict(
     ssm_config=ssm_config,
     loss_normalization=loss_normalization,
     hybrid=hybrid,
+    dist_coef=dist_coef,
 )
 # start with model_args from command line
 if init_from == "scratch":
@@ -376,7 +380,17 @@ while True:
                 micro_step == gradient_accumulation_steps - 1
             )
         with ctx:
-            logits = model(X, Y)
+            if with_dist == "Fake":
+                # simulate tokens produced by model teacher
+                Z = torch.rand(
+                    size=(n_layers, batch_size, max_seq_len, dim)
+                )  # (n_layers, bsz, seq_len)
+                Z = Z[:, :, : X.shape[1], :].to(device)  # should be useless
+                logits = model(X, Y, Z)
+            elif with_dist == "True":
+                pass
+            else:
+                logits = model(X, Y)
             loss = raw_model.last_loss
             loss = loss / gradient_accumulation_steps
         # immediately async prefetch next batch while model is doing the forward pass on the GPU

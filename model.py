@@ -68,6 +68,7 @@ class ModelArgs:
         True  # True for bit cross entropy, False for classical cross entropy
     )
     hybrid: bool = False
+    dist_coef: float = 0.0
 
     def __post_init__(self):
         assert (
@@ -345,6 +346,7 @@ class Transformer(nn.Module):
         self.loss_normalization = (
             (1 / torch.log(torch.tensor(2.0))) if params.loss_normalization else 1.0
         )
+        self.register_buffer("dist_coef", torch.tensor(params.dist_coef))
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -355,20 +357,33 @@ class Transformer(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(
-        self, tokens: torch.Tensor, targets: Optional[torch.Tensor] = None
+        self,
+        tokens: torch.Tensor,
+        targets: Optional[torch.Tensor] = None,
+        teacher_preds: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         h = self.dropout(h)
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
+        dist_loss = torch.zeros(size=()).to(tokens.device)
         if self.hybrid:
             for layer in self.layers:
-                h = (
-                    layer(h, freqs_cos, freqs_sin)
-                    if layer.layer_id % 2 == 1
-                    else layer(h)
-                )
+                if layer.layer_id % 2 == 1:
+                    h = layer(h, freqs_cos, freqs_sin)
+                    if teacher_preds is not None:
+                        pred = teacher_preds[layer.layer_id]
+                        assert (
+                            h.shape == pred.shape
+                        ), f"Shapes of teacher's pred and model pred differ, {h.shape}, {pred.shape}"
+                        dist_loss += self.loss_normalization * F.mse_loss(
+                            h,
+                            pred,
+                        )
+                else:
+                    h = layer(h)
+
         else:
             for layer in self.layers:
                 h = layer(h, freqs_cos, freqs_sin)
@@ -380,6 +395,9 @@ class Transformer(nn.Module):
             self.last_loss = self.loss_normalization * F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
+            self.last_loss = (
+                1 - self.dist_coef
+            ) * self.last_loss + self.dist_coef * dist_loss
         else:
             # inference-time mini-optimization: only forward the output on the very last position
             logits = self.output(
