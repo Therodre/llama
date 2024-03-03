@@ -370,8 +370,11 @@ class Transformer(nn.Module):
         dist_loss = torch.zeros(size=()).to(tokens.device)
         if self.hybrid:
             for layer in self.layers:
+                # transfo layers are odd
                 if layer.layer_id % 2 == 1:
                     h = layer(h, freqs_cos, freqs_sin)
+                else:
+                    h = layer(h)
                     if teacher_preds is not None:
                         pred = teacher_preds[layer.layer_id]
                         assert (
@@ -381,8 +384,6 @@ class Transformer(nn.Module):
                             h,
                             pred,
                         )
-                else:
-                    h = layer(h)
 
         else:
             for layer in self.layers:
@@ -406,6 +407,35 @@ class Transformer(nn.Module):
             self.last_loss = None
 
         return logits  # ()
+
+    @torch.no_grad()
+    def teaching_forward(
+        self,
+        tokens: torch.Tensor,
+        layers_to_teach: list,
+    ) -> torch.Tensor:
+        assert (
+            not self.hybrid
+        ), "Teaching only for pure transformers models"  # although there is no real reason to have this restriction really
+        assert (
+            layers_to_teach is not None
+        ), "Need to provide layers whoe output needs to be computed"
+        _bsz, seqlen = tokens.shape
+        h = self.tok_embeddings(tokens)
+        h = self.dropout(h)
+        freqs_cos = self.freqs_cos[:seqlen]
+        freqs_sin = self.freqs_sin[:seqlen]
+        predictions = []
+        for layer in self.layers:
+            h = layer(h, freqs_cos, freqs_sin)  # (bsz, seqlen, dim)
+            if layer.layer_id in layers_to_teach:
+                predictions.append(h)
+
+        output = torch.stack(predictions, dim=0)
+        output = output.detach()
+        output.requires_grad = False
+
+        return output  # (len(layers_to_teach), bsz, seqlen, dim)
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         # start with all of the candidate parameters
