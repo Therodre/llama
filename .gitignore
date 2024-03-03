@@ -1,0 +1,6 @@
+	.ipynb_checkpoints/
+	__pycache__/
+	notebooks/.ipynb_checkpoints/
+	out/
+	**/__pycache__/
+	wandb/
