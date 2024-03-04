@@ -376,7 +376,7 @@ class Transformer(nn.Module):
                 else:
                     h = layer(h)
                     if teacher_preds is not None:
-                        pred = teacher_preds[layer.layer_id]
+                        pred = teacher_preds[0]  # FIXME: Hack
                         assert (
                             h.shape == pred.shape
                         ), f"Shapes of teacher's pred and model pred differ, {h.shape}, {pred.shape}"
