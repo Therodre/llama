@@ -1,3 +1,4 @@
+from concurrent.futures import ProcessPoolExecutor
 import json
 import math
 import os
@@ -30,9 +31,12 @@ class DistillationCacheWriter:
         self.ctx = ctx
 
     @torch.no_grad()
-    def create_cache(self, iter_batches, steps, data_source) -> None:
+    def create_cache(self, iter_batches, steps, data_source, chunk_size) -> None:
         self.teacher_model.eval()
         all_pred = []
+        chunk_counter = 0
+        now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+
         for k in range(steps):
             X, _ = next(iter_batches)
             with self.ctx:
@@ -43,19 +47,22 @@ class DistillationCacheWriter:
             predictions.requires_grad = False
             predictions = predictions.to("cpu")
             all_pred.append(predictions)
-        all_pred = np.array(all_pred)
-        now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        filename = os.path.join(
-            self.cache_dir,
-            f"teacher_numpies_{now}.bin",
-        )
-        with open(filename, "wb") as f:
-            f.write(all_pred.tobytes())
+            if k % chunk_size == 0 and k > 0:
+                all_pred = np.array(all_pred)
+                filename = os.path.join(
+                    self.cache_dir,
+                    f"teacher_numpies_{chunk_counter}_{now}.bin",
+                )
+                with open(filename, "wb") as f:
+                    f.write(all_pred.tobytes())
+                all_pred = []
+                print(f"---- Processed the {chunk_counter}/{steps//chunk_size} chunk")
+                chunk_counter += 1
         metadata_file_name = os.path.join(
             self.cache_dir,
             f"metadata.json",
         )
-        with open(metadata_file_name, "w") as f:
+        with open(metadata_file_name, "a") as f:
             d = {
                 "date": datetime.now().strftime("%Y_%m_%d_%H_%M_%S"),
                 "tensor_shape": all_pred[0].shape,
@@ -73,7 +80,7 @@ class DistillDataset(torch.utils.data.IterableDataset):
 if __name__ == "__main__":
     from sweep.enwik_baby_llamba import *
 
-    model = build_model(TEACHER_MODEL_DIR, device="cuda")
+    model = build_model(TEACHER_MODEL_DIR, device="cuda", strict=False)
     batch_size = 16
     iter_batches = Task.iter_batches(
         batch_size=batch_size,
@@ -88,9 +95,12 @@ if __name__ == "__main__":
     cache_writer = DistillationCacheWriter(
         model=model,
         cache_dir=TEACHER_CACHE_DIR,
-        layers_to_teach=[0, 2, 4],
+        layers_to_teach=[0],
         ctx=nullcontext(),
     )
     cache_writer.create_cache(
-        iter_batches=iter_batches, data_source=(vocab_source, "train"), steps=1000
+        iter_batches=iter_batches,
+        data_source=(vocab_source, "train"),
+        steps=1_000_000,
+        chunk_size=1000,
     )
