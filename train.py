@@ -46,6 +46,8 @@ init_from = "scratch"  # 'scratch' or 'resume'
 wandb_log = True  # disabled by default
 wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+# profiling
+with_prof = False
 # data
 batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
@@ -157,6 +159,20 @@ ctx = (
     if device_type == "cpu"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
+
+# profiling
+if with_prof:
+    prof = torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        on_trace_ready=torch.profiler.tensorboard_trace_handler("./profile"),
+        profile_memory=True,
+        with_stack=True,
+        with_flops=True,
+        with_modules=True,
+    )
 
 # task-specific setup
 iter_batches = partial(
@@ -316,6 +332,10 @@ local_iter_num = 0  # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model  # unwrap DDP container if needed
 running_mfu = -1.0
 while True:
+    if with_prof:
+        # Profiling starts here
+        prof.start()
+
     # determine and set the learning rate for this iteration
     lr = get_lr(iter_num) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
@@ -408,9 +428,13 @@ while True:
         )
     iter_num += 1
     local_iter_num += 1
+    if with_prof:
+        prof.step()
 
     # termination conditions
     if iter_num > max_iters:
+        if with_prof:
+            prof.stop()
         break
 
 if ddp:
