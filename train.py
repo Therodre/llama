@@ -431,7 +431,8 @@ while True:
             loss = loss / gradient_accumulation_steps
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = next(train_batch_iter)
-        Z = teacher_model.teaching_forward(X, layers_to_teach)
+        if with_dist == "True":
+            Z = teacher_model.teaching_forward(X, layers_to_teach)
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
