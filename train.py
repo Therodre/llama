@@ -401,10 +401,10 @@ while True:
                     size=(n_layers, batch_size, max_seq_len, dim)
                 )  # (n_layers, bsz, seq_len)
                 Z = Z[:, :, : X.shape[1], :].to(device)  # should be useless
-                logits = model(X, Y, Z)
+                logits = model(X, Y, Z, layers_to_teach)
             elif with_dist == "True":
                 Z = Z[:, :, : X.shape[1], :].to(device)  # should be useless
-                logits = model(X, Y, Z)
+                logits = model(X, Y, Z, layers_to_teach)
             else:
                 logits = model(X, Y)
             loss = raw_model.last_loss

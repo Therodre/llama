@@ -53,9 +53,11 @@ if __name__ == "__main__":
     batch_size = 16
     wandb_log = False
     vocab_source = "enwik"
+    with_dist = "False"
+    dist_coeff = 0.0
     # build model
     model = build_model(out_dir, device)
-    print(model)
+    model.register_buffer("dist_coef", torch.tensor(0.0))
     iter_batches = partial(
         Task.iter_batches,
         batch_size=batch_size,

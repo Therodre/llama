@@ -361,6 +361,7 @@ class Transformer(nn.Module):
         tokens: torch.Tensor,
         targets: Optional[torch.Tensor] = None,
         teacher_preds: Optional[torch.Tensor] = None,
+        layer_to_teach: Optional[list[int]] = None,
     ) -> torch.Tensor:
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
@@ -368,6 +369,9 @@ class Transformer(nn.Module):
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
         dist_loss = torch.zeros(size=()).to(tokens.device)
+        if teacher_preds is not None:
+            assert len(layer_to_teach) == len(teacher_preds)
+            ltt_count = -1
         if self.hybrid:
             for layer in self.layers:
                 # transfo layers are odd
@@ -375,8 +379,9 @@ class Transformer(nn.Module):
                     h = layer(h, freqs_cos, freqs_sin)
                 else:
                     h = layer(h)
-                    if teacher_preds is not None:
-                        pred = teacher_preds[0]  # FIXME: Hack
+                    if teacher_preds is not None and (layer.layer_id in layer_to_teach):
+                        ltt_count += 1
+                        pred = teacher_preds[ltt_count]
                         assert (
                             h.shape == pred.shape
                         ), f"Shapes of teacher's pred and model pred differ, {h.shape}, {pred.shape}"

@@ -72,11 +72,6 @@ class DistillationCacheWriter:
             f.write(json.dumps(d))
 
 
-class DistillDataset(torch.utils.data.IterableDataset):
-    def __init__(self, dir, max_seq_len):
-        super().__init__()
-
-
 if __name__ == "__main__":
     from sweep.enwik_baby_llamba import *
 
