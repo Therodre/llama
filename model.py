@@ -68,6 +68,7 @@ class ModelArgs:
         True  # True for bit cross entropy, False for classical cross entropy
     )
     hybrid: bool = False
+    dist_coef: float = 0.0
 
     def __post_init__(self):
         assert (
@@ -345,6 +346,7 @@ class Transformer(nn.Module):
         self.loss_normalization = (
             (1 / torch.log(torch.tensor(2.0))) if params.loss_normalization else 1.0
         )
+        self.register_buffer("dist_coef", torch.tensor(params.dist_coef))
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -355,20 +357,39 @@ class Transformer(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(
-        self, tokens: torch.Tensor, targets: Optional[torch.Tensor] = None
+        self,
+        tokens: torch.Tensor,
+        targets: Optional[torch.Tensor] = None,
+        teacher_preds: Optional[torch.Tensor] = None,
+        layer_to_teach: Optional[list[int]] = None,
     ) -> torch.Tensor:
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         h = self.dropout(h)
         freqs_cos = self.freqs_cos[:seqlen]
         freqs_sin = self.freqs_sin[:seqlen]
+        dist_loss = torch.zeros(size=()).to(tokens.device)
+        if teacher_preds is not None:
+            assert len(layer_to_teach) == len(teacher_preds)
+            ltt_count = -1
         if self.hybrid:
             for layer in self.layers:
-                h = (
-                    layer(h, freqs_cos, freqs_sin)
-                    if layer.layer_id % 2 == 1
-                    else layer(h)
-                )
+                # transfo layers are odd
+                if layer.layer_id % 2 == 1:
+                    h = layer(h, freqs_cos, freqs_sin)
+                else:
+                    h = layer(h)
+                    if teacher_preds is not None and (layer.layer_id in layer_to_teach):
+                        ltt_count += 1
+                        pred = teacher_preds[ltt_count]
+                        assert (
+                            h.shape == pred.shape
+                        ), f"Shapes of teacher's pred and model pred differ, {h.shape}, {pred.shape}"
+                        dist_loss += self.loss_normalization * F.mse_loss(
+                            h,
+                            pred,
+                        )
+
         else:
             for layer in self.layers:
                 h = layer(h, freqs_cos, freqs_sin)
@@ -380,6 +401,9 @@ class Transformer(nn.Module):
             self.last_loss = self.loss_normalization * F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
+            self.last_loss = (
+                1 - self.dist_coef
+            ) * self.last_loss + self.dist_coef * dist_loss
         else:
             # inference-time mini-optimization: only forward the output on the very last position
             logits = self.output(
@@ -388,6 +412,35 @@ class Transformer(nn.Module):
             self.last_loss = None
 
         return logits  # ()
+
+    @torch.no_grad()
+    def teaching_forward(
+        self,
+        tokens: torch.Tensor,
+        layers_to_teach: list,
+    ) -> torch.Tensor:
+        assert (
+            not self.hybrid
+        ), "Teaching only for pure transformers models"  # although there is no real reason to have this restriction really
+        assert (
+            layers_to_teach is not None
+        ), "Need to provide layers whoe output needs to be computed"
+        _bsz, seqlen = tokens.shape
+        h = self.tok_embeddings(tokens)
+        h = self.dropout(h)
+        freqs_cos = self.freqs_cos[:seqlen]
+        freqs_sin = self.freqs_sin[:seqlen]
+        predictions = []
+        for layer in self.layers:
+            h = layer(h, freqs_cos, freqs_sin)  # (bsz, seqlen, dim)
+            if layer.layer_id in layers_to_teach:
+                predictions.append(h)
+
+        output = torch.stack(predictions, dim=0)
+        output = output.detach()
+        output.requires_grad = False
+
+        return output  # (len(layers_to_teach), bsz, seqlen, dim)
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         # start with all of the candidate parameters

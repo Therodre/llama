@@ -28,6 +28,7 @@ import torch
 from model import Transformer, ModelArgs, MambaConfig
 from torch.distributed import destroy_process_group, init_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
+from model_utils import build_model
 
 from tinystories import Task
 from export import model_export
@@ -93,6 +94,11 @@ dt_scale = 1.0
 bias = False
 conv_bias = True
 pscan = True
+# distillation
+with_dist = "False"  # "Fake"|"True"|"False"; str not bool watch out
+dist_coef = 0.0
+teacher_dir = "out/teacher"
+layers_to_teach = []
 # -----------------------------------------------------------------------------
 config_keys = [
     k
@@ -217,6 +223,7 @@ model_args = dict(
     ssm_config=ssm_config,
     loss_normalization=loss_normalization,
     hybrid=hybrid,
+    dist_coef=dist_coef,
 )
 # start with model_args from command line
 if init_from == "scratch":
@@ -322,11 +329,23 @@ if wandb_log and master_process:
     import wandb
 
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    print("-- This is the model to train --")
     print(model)
+    print("----")
 
 # training loop
 train_batch_iter = iter_batches(split="train")
 X, Y = next(train_batch_iter)  # fetch the very first batch
+if with_dist == "True":
+    teacher_model = build_model(teacher_dir, device, strict=False)
+    Z = teacher_model.teaching_forward(X, layers_to_teach)
+    print(Z.shape)
+    if wandb_log and master_process:
+        print("-- This is the teacher model --")
+        print(teacher_model)
+        print("----")
+
+
 t0 = time.time()
 local_iter_num = 0  # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model  # unwrap DDP container if needed
@@ -396,11 +415,23 @@ while True:
                 micro_step == gradient_accumulation_steps - 1
             )
         with ctx:
-            logits = model(X, Y)
+            if with_dist == "Fake":
+                # simulate tokens produced by model teacher
+                Z = torch.rand(
+                    size=(n_layers, batch_size, max_seq_len, dim)
+                )  # (n_layers, bsz, seq_len)
+                Z = Z[:, :, : X.shape[1], :].to(device)  # should be useless
+                logits = model(X, Y, Z, layers_to_teach)
+            elif with_dist == "True":
+                Z = Z[:, :, : X.shape[1], :].to(device)  # should be useless
+                logits = model(X, Y, Z, layers_to_teach)
+            else:
+                logits = model(X, Y)
             loss = raw_model.last_loss
             loss = loss / gradient_accumulation_steps
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         X, Y = next(train_batch_iter)
+        Z = teacher_model.teaching_forward(X, layers_to_teach)
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient

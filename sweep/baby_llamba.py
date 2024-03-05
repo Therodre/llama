@@ -3,7 +3,7 @@
 from datetime import datetime
 
 
-out_dir = "out"
+out_dir = "out/BL"
 eval_interval = 10
 log_interval = 1
 eval_iters = 100
