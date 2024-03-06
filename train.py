@@ -453,23 +453,23 @@ while True:
     if with_grad_stat and iter_num > 0 and iter_num % eval_interval == 0:
         print("--logging grad norms")
         grad_stats = {}
-        for m in model.layers:
-            if "SSM" in m.__class__.__name__:
-                for n, p in m.named_parameters():
+        for layer in model.layers:
+            if "SSM" in layer.__class__.__name__:
+                for n, p in layer.named_parameters():
                     wandb.log(
                         {
-                            f"grad/SSM/layer{m.layer_id}": sum(
-                                [p.grad.norm() for _, p in m.named_parameters()]
+                            f"grad/SSM/layer{layer.layer_id}": sum(
+                                [p.grad.norm() for _, p in layer.named_parameters()]
                             )
                         },
                         step=iter_num,
                     )
-            if "Transformer" in m.__class__.__name__:
-                for n, p in m.named_parameters():
+            if "Transformer" in layer.__class__.__name__:
+                for n, p in layer.named_parameters():
                     wandb.log(
                         {
-                            f"grad/Transfo/layer{m.layer_id}": sum(
-                                [p.grad.norm() for _, p in m.named_parameters()]
+                            f"grad/Transfo/layer{layer.layer_id}": sum(
+                                [p.grad.norm() for _, p in layer.named_parameters()]
                             )
                         },
                         step=iter_num,
