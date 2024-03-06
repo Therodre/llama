@@ -198,7 +198,6 @@ best_val_loss = 1e9
 # model init
 ssm_config = MambaConfig(
     d_model=dim,
-    n_layers=1,  # FIXME: dummy not needed here as we will only use blocks
     dt_rank=dt_rank,
     d_state=d_state,
     expand_factor=expand_factor,
@@ -209,7 +208,6 @@ ssm_config = MambaConfig(
     dt_scale=dt_scale,
     bias=bias,
     conv_bias=conv_bias,
-    pscan=pscan,
 )
 model_args = dict(
     dim=dim,

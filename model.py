@@ -2,7 +2,7 @@ import math
 import sys
 import struct
 import inspect
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -13,11 +13,31 @@ from torch import nn
 
 # sys.path.append("/home/rod/Projects/mamba")
 
-from mamba import MambaBlock, MambaConfig
+from mamba_ssm.modules.mamba_simple import Mamba as MambaBlock
+
+
+@dataclass
+class MambaConfig:
+    d_model: int = 4096
+    d_state: int = 16
+    d_conv: int = 4
+    expand_factor: int = 2
+    dt_rank: str = "auto"
+    dt_min: float = 0.001
+    dt_max: float = 0.1
+    dt_init: str = "random"
+    dt_scale: float = 1.0
+    dt_init_floor: float = 1e-4
+    conv_bias: bool = True
+    bias: bool = False
+    use_fast_path: bool = True  # Fused kernel option
+    layer_idx: Optional[int] = None
+    device: Optional[str] = None
+    dtype: Optional[str] = None
+
 
 BASIC_SSM_CONFIG = MambaConfig(
     d_model=4096,
-    n_layers=1,  # FIXME: dummy not needed here as we will only use blocks
     dt_rank="auto",
     d_state=16,  # N in paper/comments
     expand_factor=2,  # E in paper/comments
@@ -26,15 +46,12 @@ BASIC_SSM_CONFIG = MambaConfig(
     dt_max=0.1,
     dt_init="random",  # "random" or "constant"
     dt_scale=1.0,
-    # dt_init_floor=1e-4,
     bias=False,
     conv_bias=True,
-    pscan=True,  # use parallel scan mode or sequential mode when training
 )
 
 BABY_SSM_CONFIG = MambaConfig(
     d_model=256,
-    n_layers=1,  # FIXME: dummy not needed here as we will only use blocks
     dt_rank="auto",
     d_state=16,  # N in paper/comments
     expand_factor=2,  # E in paper/comments
@@ -43,10 +60,8 @@ BABY_SSM_CONFIG = MambaConfig(
     dt_max=0.1,
     dt_init="random",  # "random" or "constant"
     dt_scale=1.0,
-    # dt_init_floor=1e-4,
     bias=False,
     conv_bias=True,
-    pscan=True,  # use parallel scan mode or sequential mode when training
 )
 
 
@@ -283,7 +298,10 @@ class TransformerBlock(nn.Module):
 class SSMBlock(MambaBlock):
     def __init__(self, layer_id: int, args: ModelArgs):
         assert args.ssm_config, f"No config for SSM provided, {args}"
-        super().__init__(args.ssm_config)
+        ssm_config_val = [
+            getattr(args.ssm_config, f.name) for f in fields(args.ssm_config)
+        ]
+        super().__init__(*ssm_config_val)
         self.layer_id = layer_id
 
     def forward(self, x):
@@ -531,22 +549,6 @@ if __name__ == "__main__":
     print(f"== TESTING {__file__}")
     B, S = 2, 8
     device = torch.device("cpu")
-    BABY_SSM_CONFIG = MambaConfig(
-        d_model=256,
-        n_layers=1,  # FIXME: dummy not needed here as we will only use blocks
-        dt_rank="auto",
-        d_state=16,  # N in paper/comments
-        expand_factor=2,  # E in paper/comments
-        d_conv=4,
-        dt_min=0.001,
-        dt_max=0.1,
-        dt_init="random",  # "random" or "constant"
-        dt_scale=1.0,
-        # dt_init_floor=1e-4,
-        bias=False,
-        conv_bias=True,
-        pscan=True,  # use parallel scan mode or sequential mode when training
-    )
     params = ModelArgs(
         dim=256,
         n_layers=4,
