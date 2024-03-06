@@ -49,6 +49,7 @@ wandb_project = "llamac"
 wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 # profiling
 with_prof = False
+with_grad_stat = False
 # data
 batch_size = 32  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
@@ -326,7 +327,15 @@ def get_lr(it):
 if wandb_log and master_process:
     import wandb
 
-    wandb.init(project=wandb_project, name=wandb_run_name, config=config)
+    if init_from == "resume":
+        wandb.init(
+            project=wandb_project,
+            name=wandb_run_name,
+            config=config,
+            resume=True,
+        )
+    else:
+        wandb.init(project=wandb_project, name=wandb_run_name, config=config)
     print("-- This is the model to train --")
     print(model)
     print("----")
@@ -440,6 +449,32 @@ while True:
     # step the optimizer and scaler if training in fp16
     scaler.step(optimizer)
     scaler.update()
+    #
+    if with_grad_stat and iter_num > 0 and iter_num % eval_interval == 0:
+        print("--logging grad norms")
+        grad_stats = {}
+        for m in model.layers:
+            if "SSM" in m.__class__.__name__:
+                for n, p in m.named_parameters():
+                    wandb.log(
+                        {
+                            f"grad/SSM/layer{m.layer_id}": sum(
+                                [p.grad.norm() for _, p in m.named_parameters()]
+                            )
+                        },
+                        step=iter_num,
+                    )
+            if "Transformer" in m.__class__.__name__:
+                for n, p in m.named_parameters():
+                    wandb.log(
+                        {
+                            f"grad/Transfo/layer{m.layer_id}": sum(
+                                [p.grad.norm() for _, p in m.named_parameters()]
+                            )
+                        },
+                        step=iter_num,
+                    )
+
     # flush the gradients as soon as we can, no need for this memory anymore
     optimizer.zero_grad(set_to_none=True)
 
